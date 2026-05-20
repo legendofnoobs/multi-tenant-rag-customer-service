@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum Role {
+  PLATFORM_OWNER
+  WORKSPACE_OWNER
+  ADMIN
+  AGENT
+}
+
+enum ConversationStatus {
+  AI_ACTIVE
+  ESCALATED
+  CLOSED
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId       String
+  owner         User     @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+
+  // Branding & Configuration
+  widgetName      String   @default("Support AI")
+  widgetColor     String   @default("#3B82F6")
+  welcomeMessage  String   @default("Hello! I'm your AI assistant. How can I help you today?")
+
+  users         User[]
+  conversations Conversation[]
+  documents     Document[]
+  events        Event[]
+  analytics     AnalyticsDaily[]
+  invitations   Invitation[]
+  cannedResponses CannedResponse[]
+  insightReports InsightReport[]
+
+  @@index([id])
+}
+
+model CannedResponse {
+  id          String   @id @default(uuid())
+  title       String
+  content     String
+  shortcut    String?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model InsightReport {
+  id          String   @id @default(uuid())
+  content     String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model Invitation {
+  id          String   @id @default(uuid())
+  email       String
+  token       String   @unique
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  role        Role     @default(AGENT)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+}
+
+model User {
+  id          String   @id @default(uuid())
+  name        String?
+  email       String   @unique
+  password    String
+  role        Role     @default(AGENT)
+  isOnline    Boolean  @default(false)
+  workspaces  Workspace[]
+  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages Message[]
+  assignedConversations Conversation[] @relation("AssignedConversations")
+  lockedConversations   Conversation[] @relation("LockedConversations")
+
+  @@index([email])
+}
+
+model Conversation {
+  id          String             @id @default(uuid())
+  customerEmail String?
+  status      ConversationStatus @default(AI_ACTIVE)
+  workspaceId String
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id])
+  assignedToId   String?
+  assignedTo     User?    @relation("AssignedConversations", fields: [assignedToId], references: [id])
+  
+  lockedById     String?
+  lockedBy       User?    @relation("LockedConversations", fields: [lockedById], references: [id])
+  lockedAt       DateTime?
+
+  messages       Message[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([lockedById])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  content        String
+  role           String       // 'user', 'assistant', or 'system'
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         String?
+  user           User?        @relation(fields: [userId], references: [id])
+  sources        String[]     @default([])
+  // isInternal     Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  filename    String
+  content     String
+  status      String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, ERROR
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  chunks      DocumentChunk[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([workspaceId])
+}
+
+model DocumentChunk {
+  id         String                 @id @default(uuid())
+  content    String
+  embedding  Unsupported("vector(768)")?
+  documentId String
+  document   Document               @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  type        String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model AnalyticsDaily {
+  id            String   @id @default(uuid())
+  date          DateTime
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  totalChats    Int      @default(0)
+  totalMessages Int      @default(0)
+  escalations   Int      @default(0)
+  avgResolution Int      @default(0) // in seconds
+  
+  @@unique([date, workspaceId])
+}
