@@ -23,7 +23,7 @@ export const updateWorkspaceSchema = z.object({
 
 export const sendMessageSchema = z.object({
   message: z.string().min(1, 'Message is required'),
-  conversationId: z.string().optional(),
+  conversationId: z.string().nullable().optional(),
   isPreview: z.boolean().optional(),
 });
 
